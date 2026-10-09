@@ -1,0 +1,29 @@
+# Render blueprint for the NeuroTask API. Secrets marked sync: false are entered in the Render dashboard.
+services:
+  - type: web
+    name: neurotask-api
+    runtime: node
+    rootDir: backend
+    # --include=dev: the Prisma CLI and TypeScript are dev dependencies needed at build/migrate time
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run db:migrate && npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
