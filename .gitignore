@@ -1,0 +1,46 @@
+# ── Dependencies ──────────────────────────────
+node_modules/
+.pnp
+.pnp.*
+
+# ── Environment & secrets (never commit) ──────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── Build output ──────────────────────────────
+backend/dist/
+frontend/.next/
+frontend/out/
+frontend/build/
+*.tsbuildinfo
+frontend/next-env.d.ts
+
+# ── Local databases & test data ───────────────
+backend/.pglite/
+*.sqlite
+*.db
+
+# ── Testing ───────────────────────────────────
+coverage/
+
+# ── Logs ──────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Deployment ────────────────────────────────
+.vercel/
+
+# ── OS & editors ──────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
