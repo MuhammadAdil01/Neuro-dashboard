@@ -1,0 +1,339 @@
+// NeuroTask Dashboard — database schema (Supabase PostgreSQL)
+// Tables and columns use snake_case in the database; models use camelCase in code.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Supabase: pooled connection (port 6543, ?pgbouncer=true) for the running app
+  url       = env("DATABASE_URL")
+  // Supabase: direct connection (port 5432) for migrations
+  directUrl = env("DIRECT_URL")
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum RoleName {
+  ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TaskPriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum FocusType {
+  FOCUS
+  SHORT_BREAK
+  LONG_BREAK
+}
+
+enum FocusStatus {
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum MoodLevel {
+  GREAT
+  GOOD
+  OKAY
+  LOW
+  STRESSED
+}
+
+enum NotificationType {
+  TASK_REMINDER
+  TASK_DUE
+  TASK_COMPLETED
+  FOCUS
+  SYSTEM
+}
+
+enum Theme {
+  LIGHT
+  DARK
+  SYSTEM
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+model Role {
+  id          Int      @id @default(autoincrement())
+  name        RoleName @unique
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  users       User[]
+
+  @@map("roles")
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  name         String     @db.VarChar(100)
+  email        String     @unique @db.VarChar(255)
+  passwordHash String     @map("password_hash")
+  roleId       Int        @map("role_id")
+  status       UserStatus @default(ACTIVE)
+  avatarUrl    String?    @map("avatar_url")
+  bio          String?    @db.VarChar(500)
+  // Incremented to invalidate every issued token (password change, deactivation, "log out everywhere")
+  tokenVersion Int        @default(0) @map("token_version")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  role                Role                 @relation(fields: [roleId], references: [id])
+  settings            UserSettings?
+  tasks               Task[]
+  projects            Project[]
+  categories          Category[]
+  focusSessions       FocusSession[]
+  moodLogs            MoodLog[]
+  notes               Note[]
+  notifications       Notification[]
+  activityLogs        ActivityLog[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@index([roleId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model UserSettings {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @unique @map("user_id") @db.Uuid
+  theme                Theme    @default(SYSTEM)
+  timezone             String   @default("UTC") @db.VarChar(64)
+  dateFormat           String   @default("MMM d, yyyy") @map("date_format") @db.VarChar(32)
+  timeFormat24h        Boolean  @default(false) @map("time_format_24h")
+  weekStartsOn         Int      @default(1) @map("week_starts_on") // 0 = Sunday, 1 = Monday
+  emailNotifications   Boolean  @default(true) @map("email_notifications")
+  taskReminders        Boolean  @default(true) @map("task_reminders")
+  reminderLeadMinutes  Int      @default(60) @map("reminder_lead_minutes")
+  focusMinutes         Int      @default(25) @map("focus_minutes")
+  shortBreakMinutes    Int      @default(5) @map("short_break_minutes")
+  longBreakMinutes     Int      @default(15) @map("long_break_minutes")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_settings")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  // Only the SHA-256 hash of the token is stored, never the raw token
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ───────────────────────────── Productivity ─────────────────────────────
+
+model Category {
+  id        String   @id @default(uuid()) @db.Uuid
+  // NULL user_id = global category managed by admins; otherwise a user's private category
+  userId    String?  @map("user_id") @db.Uuid
+  name      String   @db.VarChar(50)
+  color     String   @default("#6366f1") @db.VarChar(16)
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("categories")
+}
+
+model Project {
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String        @map("user_id") @db.Uuid
+  name        String        @db.VarChar(100)
+  description String?       @db.VarChar(1000)
+  color       String        @default("#6366f1") @db.VarChar(16)
+  status      ProjectStatus @default(ACTIVE)
+  dueDate     DateTime?     @map("due_date")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks Task[]
+
+  @@index([userId, status])
+  @@map("projects")
+}
+
+model Task {
+  id             String       @id @default(uuid()) @db.Uuid
+  userId         String       @map("user_id") @db.Uuid
+  projectId      String?      @map("project_id") @db.Uuid
+  categoryId     String?      @map("category_id") @db.Uuid
+  title          String       @db.VarChar(200)
+  description    String?      @db.VarChar(5000)
+  priority       TaskPriority @default(MEDIUM)
+  status         TaskStatus   @default(TODO)
+  dueDate        DateTime?    @map("due_date")
+  completedAt    DateTime?    @map("completed_at")
+  reminderSentAt DateTime?    @map("reminder_sent_at")
+  overdueSentAt  DateTime?    @map("overdue_sent_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project       Project?       @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  category      Category?      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  focusSessions FocusSession[]
+
+  @@index([userId, status])
+  @@index([userId, dueDate])
+  @@index([userId, completedAt])
+  @@index([projectId])
+  @@index([categoryId])
+  @@map("tasks")
+}
+
+model FocusSession {
+  id               String      @id @default(uuid()) @db.Uuid
+  userId           String      @map("user_id") @db.Uuid
+  taskId           String?     @map("task_id") @db.Uuid
+  type             FocusType   @default(FOCUS)
+  status           FocusStatus @default(IN_PROGRESS)
+  plannedMinutes   Int         @map("planned_minutes")
+  actualSeconds    Int         @default(0) @map("actual_seconds")
+  startedAt        DateTime    @default(now()) @map("started_at")
+  endedAt          DateTime?   @map("ended_at")
+  createdAt        DateTime    @default(now()) @map("created_at")
+  updatedAt        DateTime    @updatedAt @map("updated_at")
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  task Task? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startedAt])
+  @@map("focus_sessions")
+}
+
+model MoodLog {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  mood      MoodLevel
+  note      String?   @db.VarChar(1000)
+  loggedAt  DateTime  @default(now()) @map("logged_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, loggedAt])
+  @@map("mood_logs")
+}
+
+model Note {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String   @db.VarChar(200)
+  body      String?  @db.VarChar(20000)
+  isPinned  Boolean  @default(false) @map("is_pinned")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, updatedAt])
+  @@map("notes")
+}
+
+// ───────────────────────────── System ─────────────────────────────
+
+model Notification {
+  id         String           @id @default(uuid()) @db.Uuid
+  userId     String           @map("user_id") @db.Uuid
+  type       NotificationType
+  title      String           @db.VarChar(200)
+  message    String           @db.VarChar(1000)
+  entityType String?          @map("entity_type") @db.VarChar(50)
+  entityId   String?          @map("entity_id") @db.Uuid
+  isRead     Boolean          @default(false) @map("is_read")
+  readAt     DateTime?        @map("read_at")
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  // SetNull keeps the audit trail when an account is deleted
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(80)
+  entityType String?  @map("entity_type") @db.VarChar(50)
+  entityId   String?  @map("entity_id") @db.VarChar(64)
+  details    Json?
+  ipAddress  String?  @map("ip_address") @db.VarChar(64)
+  userAgent  String?  @map("user_agent") @db.VarChar(300)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+model SystemSetting {
+  key       String   @id @db.VarChar(64)
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by") @db.Uuid
+
+  @@map("system_settings")
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(100)
+  email     String   @db.VarChar(255)
+  subject   String   @db.VarChar(200)
+  message   String   @db.VarChar(5000)
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@map("contact_messages")
+}
