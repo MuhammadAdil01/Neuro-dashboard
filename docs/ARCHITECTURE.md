@@ -67,7 +67,7 @@ Rules the database enforces as well as the API:
 |---------|----------------|
 | Password storage | bcrypt (12 rounds). Passwords and reset tokens are never returned or logged. |
 | Session | JWT (`sub`, `role`, `ver`) in an `httpOnly`, `SameSite=Lax` cookie (`Secure` in production), 7-day expiry. Bearer header supported for API clients. |
-| Revocation | Every request re-loads the user. A changed `token_version` (password change/reset, deactivation, role change, "sign out everywhere") or an inactive status invalidates the token immediately. |
+| Revocation | Every request checks the user's status and `token_version` (cached in memory for 30 seconds; the cache entry is cleared on every password change/reset, deactivation, role change, "sign out everywhere" and account deletion). A changed `token_version` or an inactive status invalidates the token. |
 | RBAC | `requireAdmin` on `/api/v1/admin/*` and checks for global categories. The Next.js middleware also redirects, but only for UX. |
 | Ownership | Every `/:id` route loads the record and calls `assertOwner`: 404 when missing, **403** when it belongs to another user. List queries always filter by `user_id`. Referenced projects and categories are ownership-checked too. |
 | Password reset | 32-byte random token, SHA-256 hash stored, 30-minute expiry, single use, older tokens invalidated. Forgot-password always returns the same response. |
