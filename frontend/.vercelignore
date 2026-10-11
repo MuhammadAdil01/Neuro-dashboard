@@ -1,0 +1,6 @@
+# Never upload local env files or build output with `vercel deploy`
+.env*
+!.env.example
+.next
+node_modules
+tsconfig.tsbuildinfo

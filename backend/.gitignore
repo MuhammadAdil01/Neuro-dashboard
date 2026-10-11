@@ -6,3 +6,7 @@ dist
 coverage
 *.log
 .pglite
+
+.vercel
+.env*
+!.env.example

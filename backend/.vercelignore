@@ -1,0 +1,9 @@
+# Never upload local secrets or dev-only data with `vercel deploy`
+.env*
+!.env.example
+.pglite
+node_modules
+dist
+coverage
+tests
+*.log

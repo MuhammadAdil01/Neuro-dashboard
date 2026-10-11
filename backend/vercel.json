@@ -3,5 +3,6 @@
   "framework": null,
   "regions": ["hnd1"],
   "buildCommand": "prisma generate && prisma migrate deploy",
+  "outputDirectory": "public",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }

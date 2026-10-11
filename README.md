@@ -2,6 +2,8 @@
 
 A full-stack productivity platform for students and professionals: tasks, projects, calendar, Pomodoro focus sessions, mood tracking, notes, analytics, notifications, and a separate Admin Panel.
 
+**Live:** [neuro-dashboard-eight.vercel.app](https://neuro-dashboard-eight.vercel.app) · API: [neuro-dashboard-api.vercel.app/health](https://neuro-dashboard-api.vercel.app/health). Both Vercel projects deploy automatically on every push to `main`.
+
 | Layer    | Technology |
 |----------|------------|
 | Frontend | Next.js 15 (App Router), React 19, TypeScript, Tailwind CSS 4, SWR, React Hook Form + Zod, Recharts |
