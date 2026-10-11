@@ -53,7 +53,7 @@ router.get('/', validate({ query: listSchema }), async (req: Request, res: Respo
     ...(q.status ? { status: q.status } : {}),
     ...(q.from || q.to ? { startedAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}),
   };
-  const [items, total] = await prisma.$transaction([
+  const [items, total] = await Promise.all([
     prisma.focusSession.findMany({ where, include, orderBy: { startedAt: 'desc' }, ...pageArgs(q.page, q.limit) }),
     prisma.focusSession.count({ where }),
   ]);

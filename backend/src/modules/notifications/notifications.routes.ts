@@ -28,7 +28,7 @@ router.get('/', validate({ query: listSchema }), async (req: Request, res: Respo
     ...(q.unread !== undefined ? { isRead: !q.unread } : {}),
     ...(q.type ? { type: q.type } : {}),
   };
-  const [items, total, unreadCount] = await prisma.$transaction([
+  const [items, total, unreadCount] = await Promise.all([
     prisma.notification.findMany({ where, orderBy: { createdAt: 'desc' }, ...pageArgs(q.page, q.limit) }),
     prisma.notification.count({ where }),
     prisma.notification.count({ where: { userId, isRead: false } }),

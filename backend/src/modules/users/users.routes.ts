@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword } from '../../lib/password';
 import { prisma } from '../../lib/prisma';
 import { endSession, startSession } from '../../lib/session';
 import { ApiError } from '../../common/errors';
+import { forgetSessionUser } from '../../common/middleware/auth';
 import { getBody, validate } from '../../common/middleware/validate';
 import { Actions, logActivity } from '../../common/services/activity';
 import { ok } from '../../common/utils/response';
@@ -64,6 +65,7 @@ router.get('/me', async (req: Request, res: Response) => {
 router.patch('/me', validate({ body: updateProfileSchema }), async (req: Request, res: Response) => {
   const data = getBody(req, updateProfileSchema);
   const user = await prisma.user.update({ where: { id: req.user!.id }, data, include: { role: true, settings: true } });
+  forgetSessionUser(user.id);
   await logActivity({ userId: user.id, action: Actions.USER_PROFILE_UPDATED, details: { fields: Object.keys(data) }, req });
   return ok(res, serializeUser(user));
 });
@@ -82,6 +84,7 @@ router.patch('/me/password', validate({ body: changePasswordSchema }), async (re
     data: { passwordHash: await hashPassword(newPassword), tokenVersion: { increment: 1 } },
     include: { role: true },
   });
+  forgetSessionUser(user.id);
   startSession(res, updated);
 
   await logActivity({ userId: user.id, action: Actions.USER_PASSWORD_CHANGED, req });
@@ -124,6 +127,7 @@ router.delete('/me', validate({ body: deleteAccountSchema }), async (req: Reques
   // Audit entry is written first; the FK is SET NULL on delete so the entry survives
   await logActivity({ userId: user.id, action: Actions.USER_ACCOUNT_DELETED, details: { email: user.email }, req });
   await prisma.user.delete({ where: { id: user.id } }); // cascades to all owned records
+  forgetSessionUser(user.id);
   endSession(res);
   return ok(res, { message: 'Your account and all associated data have been deleted.' });
 });

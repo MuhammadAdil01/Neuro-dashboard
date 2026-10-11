@@ -119,7 +119,7 @@ router.get('/', validate({ query: listSchema }), async (req: Request, res: Respo
       ? [{ dueDate: { sort: q.sortOrder, nulls: 'last' } }, { createdAt: 'desc' }]
       : [{ [q.sortBy]: q.sortOrder }, { createdAt: 'desc' }];
 
-  const [items, total] = await prisma.$transaction([
+  const [items, total] = await Promise.all([
     prisma.task.findMany({ where, include: taskInclude, orderBy, ...pageArgs(q.page, q.limit) }),
     prisma.task.count({ where }),
   ]);
@@ -130,10 +130,13 @@ router.get('/', validate({ query: listSchema }), async (req: Request, res: Respo
 router.post('/', validate({ body: createSchema }), async (req: Request, res: Response) => {
   const data = getBody(req, createSchema);
   const userId = req.user!.id;
-  await Promise.all([assertCategoryUsable(data.categoryId, userId), assertProjectOwned(data.projectId, userId)]);
-
-  const { maxTasksPerUser } = await getSystemSettings();
-  if ((await prisma.task.count({ where: { userId } })) >= maxTasksPerUser) {
+  const [, , { maxTasksPerUser }, taskCount] = await Promise.all([
+    assertCategoryUsable(data.categoryId, userId),
+    assertProjectOwned(data.projectId, userId),
+    getSystemSettings(),
+    prisma.task.count({ where: { userId } }),
+  ]);
+  if (taskCount >= maxTasksPerUser) {
     throw ApiError.badRequest(`Task limit reached (${maxTasksPerUser}). Delete old tasks to add new ones.`);
   }
 

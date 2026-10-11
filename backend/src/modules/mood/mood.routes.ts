@@ -44,7 +44,7 @@ router.get('/', validate({ query: listSchema }), async (req: Request, res: Respo
     ...(q.mood ? { mood: q.mood } : {}),
     ...(q.from || q.to ? { loggedAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}),
   };
-  const [items, total] = await prisma.$transaction([
+  const [items, total] = await Promise.all([
     prisma.moodLog.findMany({ where, orderBy: { loggedAt: 'desc' }, ...pageArgs(q.page, q.limit) }),
     prisma.moodLog.count({ where }),
   ]);

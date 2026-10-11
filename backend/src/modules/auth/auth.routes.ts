@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from '../../lib/password';
 import { prisma } from '../../lib/prisma';
 import { endSession, startSession } from '../../lib/session';
 import { ApiError } from '../../common/errors';
-import { authenticate } from '../../common/middleware/auth';
+import { authenticate, forgetSessionUser } from '../../common/middleware/auth';
 import { authLimiter, sensitiveLimiter } from '../../common/middleware/rateLimit';
 import { getBody, validate } from '../../common/middleware/validate';
 import { Actions, logActivity } from '../../common/services/activity';
@@ -127,6 +127,7 @@ router.post('/logout', async (req: Request, res: Response) => {
 // POST /auth/logout-all — revokes every token issued for this account
 router.post('/logout-all', authenticate, async (req: Request, res: Response) => {
   await prisma.user.update({ where: { id: req.user!.id }, data: { tokenVersion: { increment: 1 } } });
+  forgetSessionUser(req.user!.id);
   await logActivity({ userId: req.user!.id, action: Actions.AUTH_LOGOUT_ALL, req });
   endSession(res);
   return ok(res, { message: 'Logged out from all devices' });
@@ -182,6 +183,7 @@ router.post('/reset-password', authLimiter, validate({ body: resetSchema }), asy
     }),
     prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
   ]);
+  forgetSessionUser(record.userId);
   await logActivity({ userId: record.userId, action: Actions.AUTH_PASSWORD_RESET, req });
 
   return ok(res, { message: 'Your password has been reset. You can now log in.' });

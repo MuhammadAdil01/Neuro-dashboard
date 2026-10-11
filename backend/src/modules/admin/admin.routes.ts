@@ -3,6 +3,7 @@ import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { ApiError } from '../../common/errors';
+import { forgetSessionUser } from '../../common/middleware/auth';
 import { getBody, getId, getQuery, idParam, validate } from '../../common/middleware/validate';
 import { Actions, logActivity } from '../../common/services/activity';
 import { getSystemSettings, systemSettingsSchema, updateSystemSettings } from '../../common/services/systemSettings';
@@ -118,7 +119,7 @@ router.get('/users', validate({ query: userListSchema }), async (req: Request, r
   const orderBy: Prisma.UserOrderByWithRelationInput =
     q.sortBy === 'lastLoginAt' ? { lastLoginAt: { sort: q.sortOrder, nulls: 'last' } } : { [q.sortBy]: q.sortOrder };
 
-  const [users, total] = await prisma.$transaction([
+  const [users, total] = await Promise.all([
     prisma.user.findMany({ where, select: { ...userSelect, _count: { select: { tasks: true } } }, orderBy, ...pageArgs(q.page, q.limit) }),
     prisma.user.count({ where }),
   ]);
@@ -182,6 +183,7 @@ router.patch('/users/:id/status', validate({ params: idParam, body: statusSchema
     data: { status, ...(status === 'INACTIVE' ? { tokenVersion: { increment: 1 } } : {}) },
     select: userSelect,
   });
+  forgetSessionUser(id);
   await logActivity({ userId: req.user!.id, action: Actions.ADMIN_USER_STATUS, entityType: 'user', entityId: id, details: { email: user.email, from: target.status, to: status }, req });
   return ok(res, serializeUser(user));
 });
@@ -205,6 +207,7 @@ router.patch('/users/:id/role', validate({ params: idParam, body: roleSchema }),
     data: { roleId: roleRow.id, tokenVersion: { increment: 1 } },
     select: userSelect,
   });
+  forgetSessionUser(id);
   await logActivity({ userId: req.user!.id, action: Actions.ADMIN_USER_ROLE, entityType: 'user', entityId: id, details: { email: user.email, from: target.role.name, to: role }, req });
   return ok(res, serializeUser(user));
 });
@@ -235,7 +238,7 @@ router.get('/activity-logs', validate({ query: logsSchema }), async (req: Reques
       : {}),
     ...(q.from || q.to ? { createdAt: { ...(q.from ? { gte: q.from } : {}), ...(q.to ? { lte: q.to } : {}) } } : {}),
   };
-  const [logs, total] = await prisma.$transaction([
+  const [logs, total] = await Promise.all([
     prisma.activityLog.findMany({
       where,
       include: { user: { select: { id: true, name: true, email: true } } },
@@ -343,7 +346,7 @@ router.post('/notifications/broadcast', validate({ body: broadcastSchema }), asy
 router.get('/messages', validate({ query: messagesSchema }), async (req: Request, res: Response) => {
   const q = getQuery(req, messagesSchema);
   const where: Prisma.ContactMessageWhereInput = q.unread !== undefined ? { isRead: !q.unread } : {};
-  const [items, total, unreadCount] = await prisma.$transaction([
+  const [items, total, unreadCount] = await Promise.all([
     prisma.contactMessage.findMany({ where, orderBy: { createdAt: 'desc' }, ...pageArgs(q.page, q.limit) }),
     prisma.contactMessage.count({ where }),
     prisma.contactMessage.count({ where: { isRead: false } }),

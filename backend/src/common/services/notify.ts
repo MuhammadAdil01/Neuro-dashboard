@@ -31,18 +31,25 @@ export async function generateTaskReminders(userId?: string, now = new Date()) {
   const enabled = { user: { status: 'ACTIVE' as const, settings: { is: { taskReminders: true } } } };
   let created = 0;
 
-  // Due soon: due date within each user's reminder lead time (max 7 days look-ahead)
-  const dueSoon = await prisma.task.findMany({
-    where: {
-      ...userFilter,
-      ...open,
-      ...enabled,
-      reminderSentAt: null,
-      dueDate: { gt: now, lte: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) },
-    },
-    select: { id: true, userId: true, title: true, dueDate: true, user: { select: { settings: { select: { reminderLeadMinutes: true } } } } },
-    take: 500,
-  });
+  // Due soon: due date within each user's reminder lead time (max 7 days look-ahead). Both lookups run in parallel.
+  const [dueSoon, overdue] = await Promise.all([
+    prisma.task.findMany({
+      where: {
+        ...userFilter,
+        ...open,
+        ...enabled,
+        reminderSentAt: null,
+        dueDate: { gt: now, lte: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000) },
+      },
+      select: { id: true, userId: true, title: true, dueDate: true, user: { select: { settings: { select: { reminderLeadMinutes: true } } } } },
+      take: 500,
+    }),
+    prisma.task.findMany({
+      where: { ...userFilter, ...open, ...enabled, overdueSentAt: null, dueDate: { lte: now } },
+      select: { id: true, userId: true, title: true },
+      take: 500,
+    }),
+  ]);
   for (const task of dueSoon) {
     const lead = (task.user.settings?.reminderLeadMinutes ?? 60) * 60 * 1000;
     if (task.dueDate!.getTime() - now.getTime() > lead) continue;
@@ -62,11 +69,6 @@ export async function generateTaskReminders(userId?: string, now = new Date()) {
   }
 
   // Overdue
-  const overdue = await prisma.task.findMany({
-    where: { ...userFilter, ...open, ...enabled, overdueSentAt: null, dueDate: { lte: now } },
-    select: { id: true, userId: true, title: true },
-    take: 500,
-  });
   for (const task of overdue) {
     const claimed = await prisma.task.updateMany({ where: { id: task.id, overdueSentAt: null }, data: { overdueSentAt: now } });
     if (claimed.count === 0) continue;

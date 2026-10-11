@@ -10,9 +10,33 @@ function extractToken(req: Request): string | null {
   return req.cookies?.[env.COOKIE_NAME] ?? null;
 }
 
+type SessionUser = { id: string; email: string; name: string; status: 'ACTIVE' | 'INACTIVE'; tokenVersion: number; role: { name: 'ADMIN' | 'USER' } };
+
+// Each DB round trip to Supabase costs ~200ms, so the per-request user lookup is cached briefly.
+// Every write that changes status, role, token_version or the account itself calls forgetSessionUser().
+const SESSION_CACHE_MS = 30_000;
+const sessionCache = new Map<string, { user: SessionUser; at: number }>();
+
+export function forgetSessionUser(userId: string) {
+  sessionCache.delete(userId);
+}
+
+async function loadSessionUser(id: string): Promise<SessionUser | null> {
+  const hit = sessionCache.get(id);
+  if (hit && Date.now() - hit.at < SESSION_CACHE_MS) return hit.user;
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, email: true, name: true, status: true, tokenVersion: true, role: { select: { name: true } } },
+  });
+  if (sessionCache.size > 10_000) sessionCache.clear();
+  if (user) sessionCache.set(id, { user, at: Date.now() });
+  else sessionCache.delete(id);
+  return user;
+}
+
 /**
- * Verifies the JWT, then re-checks the user in the database so deactivated
- * accounts, role changes and revoked tokens (token_version) take effect immediately.
+ * Verifies the JWT, then re-checks the user (cached for 30s) so deactivated
+ * accounts, role changes and revoked tokens (token_version) take effect.
  */
 export async function authenticate(req: Request, _res: Response, next: NextFunction) {
   const token = extractToken(req);
@@ -26,10 +50,11 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   }
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { id: true, email: true, name: true, status: true, tokenVersion: true, role: { select: { name: true } } },
-    });
+    let user = await loadSessionUser(payload.sub);
+    if (user && user.tokenVersion !== payload.ver) {
+      forgetSessionUser(payload.sub); // the cache may be older than this token
+      user = await loadSessionUser(payload.sub);
+    }
     if (!user || user.tokenVersion !== payload.ver) {
       return next(ApiError.unauthorized('Session expired or invalid. Please log in again.'));
     }

@@ -37,7 +37,7 @@ router.get('/', validate({ query: listSchema }), async (req: Request, res: Respo
       ? { OR: [{ title: { contains: q.search, mode: 'insensitive' } }, { body: { contains: q.search, mode: 'insensitive' } }] }
       : {}),
   };
-  const [items, total] = await prisma.$transaction([
+  const [items, total] = await Promise.all([
     prisma.note.findMany({ where, orderBy: [{ isPinned: 'desc' }, { updatedAt: 'desc' }], ...pageArgs(q.page, q.limit) }),
     prisma.note.count({ where }),
   ]);

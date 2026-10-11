@@ -46,13 +46,14 @@ export async function userTimeZone(userId: string) {
 
 /**
  * A day counts towards the productivity streak when the user completed at least one
- * task or one focus session. Looks back one year.
+ * task or one focus session. Looks back one year. `tzP` may be a pending lookup so it runs in parallel.
  */
-export async function productivityStreaks(userId: string, tz: string) {
+export async function productivityStreaks(userId: string, tzP: string | Promise<string>) {
   const since = rangeStart(366);
-  const [tasks, sessions] = await Promise.all([
+  const [tasks, sessions, tz] = await Promise.all([
     prisma.task.findMany({ where: { userId, status: 'COMPLETED', completedAt: { gte: since } }, select: { completedAt: true } }),
     prisma.focusSession.findMany({ where: { userId, type: 'FOCUS', status: 'COMPLETED', startedAt: { gte: since } }, select: { startedAt: true } }),
+    tzP,
   ]);
   const active = new Set<string>([
     ...tasks.map((t) => dayKey(t.completedAt!, tz)),
@@ -62,14 +63,13 @@ export async function productivityStreaks(userId: string, tz: string) {
 }
 
 export async function overview(userId: string) {
-  const tz = await userTimeZone(userId);
+  const tzP = userTimeZone(userId); // fetched alongside the other queries, not before them
   const now = new Date();
-  const week = lastNDays(7, tz);
-  const today = week[week.length - 1];
   const open = { status: { in: ['TODO', 'IN_PROGRESS'] as ('TODO' | 'IN_PROGRESS')[] } };
 
-  const [statusGroups, highPriority, overdue, upcomingTasks, completedRecent, focusRecent, moodRecent, latestMood, recentActivity, streaks, unread] =
+  const [tz, statusGroups, highPriority, overdue, upcomingTasks, completedRecent, focusRecent, moodRecent, latestMood, recentActivity, streaks, unread] =
     await Promise.all([
+      tzP,
       prisma.task.groupBy({ by: ['status'], where: { userId }, _count: { _all: true } }),
       prisma.task.count({ where: { userId, ...open, priority: 'HIGH' } }),
       prisma.task.count({ where: { userId, ...open, dueDate: { lt: now } } }),
@@ -92,9 +92,11 @@ export async function overview(userId: string) {
         take: 8,
         select: { id: true, action: true, entityType: true, entityId: true, details: true, createdAt: true },
       }),
-      productivityStreaks(userId, tz),
+      productivityStreaks(userId, tzP),
       prisma.notification.count({ where: { userId, isRead: false } }),
     ]);
+  const week = lastNDays(7, tz);
+  const today = week[week.length - 1];
 
   const byStatus = Object.fromEntries(statusGroups.map((g) => [g.status, g._count._all])) as Record<string, number>;
   const total = statusGroups.reduce((s, g) => s + g._count._all, 0);
@@ -144,13 +146,12 @@ export async function overview(userId: string) {
 }
 
 export async function productivity(userId: string, days: number) {
-  const tz = await userTimeZone(userId);
+  const tzP = userTimeZone(userId);
   const now = new Date();
-  const range = lastNDays(days, tz);
-  const heatmapDays = lastNDays(56, tz); // 8-week activity heatmap
   const since = rangeStart(Math.max(days, 56), now);
 
-  const [created, completed, focus, priorityGroups, statusGroups, categoryGroups, streaks] = await Promise.all([
+  const [tz, created, completed, focus, priorityGroups, statusGroups, categoryGroups, streaks] = await Promise.all([
+    tzP,
     prisma.task.findMany({ where: { userId, createdAt: { gte: since } }, select: { createdAt: true } }),
     prisma.task.findMany({ where: { userId, status: 'COMPLETED', completedAt: { gte: since } }, select: { completedAt: true } }),
     prisma.focusSession.findMany({
@@ -160,8 +161,10 @@ export async function productivity(userId: string, days: number) {
     prisma.task.groupBy({ by: ['priority'], where: { userId }, _count: { _all: true } }),
     prisma.task.groupBy({ by: ['status'], where: { userId }, _count: { _all: true } }),
     prisma.task.groupBy({ by: ['categoryId'], where: { userId }, _count: { _all: true } }),
-    productivityStreaks(userId, tz),
+    productivityStreaks(userId, tzP),
   ]);
+  const range = lastNDays(days, tz);
+  const heatmapDays = lastNDays(56, tz); // 8-week activity heatmap
 
   const categoryIds = categoryGroups.map((g) => g.categoryId).filter((id): id is string => Boolean(id));
   const categories = await prisma.category.findMany({ where: { id: { in: categoryIds } }, select: { id: true, name: true, color: true } });

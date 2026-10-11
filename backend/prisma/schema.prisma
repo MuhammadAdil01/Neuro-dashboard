@@ -2,7 +2,10 @@
 // Tables and columns use snake_case in the database; models use camelCase in code.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  // Loads `include`d relations in one JOIN query instead of one query per relation
+  // (each Supabase round trip costs ~180ms, so this matters on every request)
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {
