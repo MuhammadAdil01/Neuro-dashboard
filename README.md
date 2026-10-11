@@ -38,7 +38,7 @@ Neurotask project/
 
 1. Create a project at [supabase.com](https://supabase.com) and note the database password.
 2. Open **Project Settings → Database → Connection string** (or the **Connect** button) and copy:
-   - **Transaction pooler** (port `6543`): this becomes `DATABASE_URL`. Append `?pgbouncer=true&connection_limit=5`.
+   - **Session pooler** (port `5432`): this becomes `DATABASE_URL`. Append `?connection_limit=6`: the session pooler allows 15 clients in total, which leaves room for migrations, Prisma Studio and a second instance during deploys. The transaction pooler (`6543`, `?pgbouncer=true`) also works but measured ~5x slower per query for this long-running API.
    - **Session pooler** or **Direct connection** (port `5432`): this becomes `DIRECT_URL` (used for migrations).
 
 The API is the only client of the database. The migration enables Row Level Security on every table **with no policies**, which blocks Supabase's public Data API (anon/authenticated keys) from reading or writing your data. The API connects as the `postgres` role, which bypasses RLS. You do not need the Supabase anon key or Supabase Auth: authentication is handled by the backend, as the project document requires.
@@ -60,7 +60,7 @@ Required `.env` values:
 
 | Variable | Description |
 |----------|-------------|
-| `DATABASE_URL` | Supabase transaction pooler URL with `?pgbouncer=true&connection_limit=5` |
+| `DATABASE_URL` | Supabase session pooler URL (port 5432) with `?connection_limit=6` |
 | `DIRECT_URL` | Supabase session/direct URL (migrations) |
 | `JWT_SECRET` | 32+ random characters: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` |
 | `FRONTEND_URL` | `http://localhost:3000` locally; your Vercel URL in production (used for CORS and reset links) |
@@ -122,9 +122,19 @@ Integration tests use `TEST_DATABASE_URL` when it is set, otherwise `DATABASE_UR
 | Part | Host | Settings |
 |------|------|----------|
 | Database | Supabase | Run `npm run db:migrate` and `npm run db:seed` once from your machine (or in the backend build step) |
-| Backend | Render / Railway / VPS | Root `backend`, build `npm install --include=dev && npm run build`, start `npm run db:migrate && npm start`. Env: everything in `.env.example` with `NODE_ENV=production`, `FRONTEND_URL=https://<your-app>.vercel.app` |
-| Frontend | Vercel | Root `frontend`, env `BACKEND_URL=https://<your-api>.onrender.com` |
+| Backend | Vercel (or Render / Railway / VPS) | See below |
+| Frontend | Vercel | Root `frontend`, env `BACKEND_URL=https://<your-api>.vercel.app` |
 
-A `backend/render.yaml` blueprint is included. In production the cookie is `Secure` (HTTPS only), errors never expose internals, and the forgot-password endpoint never returns the reset link.
+**Backend on Vercel.** Create a Vercel project with root directory `backend`. `backend/vercel.json` routes every request to the serverless entry `backend/api/index.ts`, runs `prisma generate && prisma migrate deploy` at build time, and pins the function to `hnd1` (Tokyo); change it to the region closest to your Supabase project. Env vars:
+
+- `DATABASE_URL`: the **transaction pooler** (port `6543`) with `?pgbouncer=true&connection_limit=1`, because serverless instances each open their own connection and the session pooler only allows 15 clients
+- `DIRECT_URL`: the session pooler (port `5432`), used by migrations
+- `JWT_SECRET` (a new random value), `NODE_ENV=production`, `TRUST_PROXY=1`, `FRONTEND_URL=https://<your-app>.vercel.app`, and the optional `SMTP_*` values
+
+The 5-minute reminder interval in `src/server.ts` does not run on Vercel; reminders are still generated whenever a user loads their notifications or the header bell polls.
+
+**Backend on Render / Railway / VPS.** Root `backend`, build `npm install --include=dev && npm run build`, start `npm run db:migrate && npm start`. Env: everything in `.env.example` with `NODE_ENV=production` and `FRONTEND_URL`. A `backend/render.yaml` blueprint is included.
+
+In production the cookie is `Secure` (HTTPS only), errors never expose internals, and the forgot-password endpoint never returns the reset link.
 
 See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the architecture, ERD, security model and requirements checklist, and **[docs/API.md](docs/API.md)** for the endpoint reference.
